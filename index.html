@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<meta charset="utf-8">
+<title>قلب زينب</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@700&family=Readex+Pro:wght@500;700&display=swap">
+<style>
+  /* Layout: one dark screen, a heart typed from "I love you" in 24 languages, the name set in its centre. */
+  :root {
+    --night: #0b0407;        /* deep wine black */
+    --rose: #ff2d55;         /* outline + glow */
+    --blush: #ffb3c1;        /* soft text */
+    --peach: #ffd2a8;        /* Arabic phrases */
+    --paper: #fff0f3;        /* the name */
+    --line: rgba(255, 179, 193, .28);
+    --ui: "Readex Pro", "Noto Sans Arabic", "Segoe UI", Tahoma, system-ui, sans-serif;
+    --script: "Aref Ruqaa", "Amiri", "Traditional Arabic", serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--night); color: var(--blush);
+    font-family: var(--ui); overflow: hidden;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #cap {
+    position: fixed; left: 0; right: 0; margin: 0; text-align: center;
+    font-size: clamp(14px, 3.6vw, 19px); font-weight: 500; letter-spacing: .01em;
+    color: var(--blush); opacity: 0; transform: translateY(6px);
+    transition: opacity 1.2s ease, transform 1.2s ease; pointer-events: none;
+    padding-inline: 16px;
+  }
+  #cap.on { opacity: .9; transform: none; }
+  .btn {
+    position: fixed; font: 500 14px/1 var(--ui); color: var(--blush);
+    background: rgba(11, 4, 7, .55); border: 1px solid var(--line); border-radius: 999px;
+    padding: 10px 16px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    transition: opacity .6s ease, border-color .2s ease, background .2s ease;
+  }
+  .btn:hover { border-color: var(--blush); }
+  .btn:focus-visible { outline: 2px solid var(--paper); outline-offset: 3px; }
+  .btn svg { width: 16px; height: 16px; flex: none; }
+  #snd { top: calc(14px + env(safe-area-inset-top, 0px)); left: calc(14px + env(safe-area-inset-left, 0px)); }
+  #snd[aria-pressed="true"] { background: rgba(255, 45, 85, .18); border-color: var(--rose); }
+  #again {
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%);
+    opacity: 0; pointer-events: none;
+  }
+  #again.on { opacity: 1; pointer-events: auto; }
+</style>
+
+<div dir="rtl" lang="ar">
+  <canvas id="c" aria-hidden="true"></canvas>
+  <p class="sr">قلب يُكتب بكلمة «أحبك» بأربع وعشرين لغة، وفي وسطه اسم زينب.</p>
+  <p id="cap">بـ ٢٤ لغة… والعربي أحلاها</p>
+  <button class="btn" id="snd" type="button" aria-pressed="false">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+    <span>شغّل الصوت</span>
+  </button>
+  <button class="btn" id="again" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+    <span>مرة ثانية</span>
+  </button>
+</div>
+
+<script>
+(() => {
+  const NAME = "زينب";
+  // [phrase, language] - 24 languages; Arabic appears more often.
+  const PHRASES = [
+    "أحبك", "أحبج", "I love you", "Je t'aime", "Te amo", "Ti amo", "Ich liebe dich",
+    "Eu te amo", "Seni seviyorum", "Я тебя люблю", "我爱你", "愛してる", "사랑해",
+    "मुझे तुमसे प्यार है", "دوستت دارم", "Ik hou van jou", "Jag älskar dig", "Kocham cię",
+    "Aku cinta kamu", "Σ' αγαπώ", "Te iubesc", "Mahal kita", "Nakupenda", "Ez ji te hez dikim", "Miluji tě"
+  ];
+  const ARABIC = ["أحبك", "أحبج"];
+  const FILL_COLORS = ["#ff4d6d", "#e8204f", "#ff7a93", "#c9184a", "#ff98a8", "#ff2d55"];
+  const OUTLINE_COLOR = "#ff2d55";
+  const ARABIC_COLOR = "#ffd2a8";
+  const NAME_COLOR = "#fff0f3";
+  const BG = "#0b0407";
+
+  const T_OUT0 = 0.5, T_OUT1 = 5.6, T_FILL0 = 5.9, T_FILL1 = 11.6, T_NAME = 12.1, POP = 0.5;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+  const bake = document.createElement("canvas"), bctx = bake.getContext("2d");
+  const cap = document.getElementById("cap"), again = document.getElementById("again"), snd = document.getElementById("snd");
+
+  const isRTL = s => /[֐-ࣿ]/.test(s);
+  const font = px => `700 ${px}px "Readex Pro", "Noto Sans", "Segoe UI", system-ui, sans-serif`;
+  const nameFont = px => `700 ${px}px "Aref Ruqaa", "Amiri", "Traditional Arabic", serif`;
+  const hx = t => 16 * Math.sin(t) ** 3;
+  const hy = t => 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const easeOut = k => 1 - (1 - k) ** 3;
+
+  function rng(seed) {
+    return () => {
+      seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  let W, H, dpr, L, items, t0, lastBlip = 0;
+  const S = {};  // layout results (not on the function: Function.name is read-only)
+
+  function layout() {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    for (const c of [cv, bake]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+    bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    bctx.clearRect(0, 0, W, H);
+
+    const s = Math.min(W * 0.93 / 34, H * 0.72 / 31);
+    const cx = W / 2, cy = H * 0.455;
+    const X = x => cx + x * s, Y = y => cy - (y + 2.5) * s;
+    const fs = Math.max(8.5, s * 0.92);
+    const rand = rng(1402);
+    const boxes = [];
+    items = [];
+
+    const poly = [];
+    for (let i = 0; i < 360; i++) { const t = i / 360 * Math.PI * 2; poly.push([X(hx(t)), Y(hy(t))]); }
+    const inside = (px, py) => {
+      let hit = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [xi, yi] = poly[i], [xj, yj] = poly[j];
+        if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) hit = !hit;
+      }
+      return hit;
+    };
+    const hits = (b, pad) => boxes.some(o =>
+      b.x - pad < o.x + o.w && b.x + b.w + pad > o.x && b.y - pad < o.y + o.h && b.y + b.h + pad > o.y);
+    const measure = (text, size) => { ctx.font = font(size); return ctx.measureText(text).width; };
+
+    // The name sits in the visual centre of the heart.
+    const nameSize = Math.max(44, s * 4.6);
+    ctx.font = nameFont(nameSize);
+    const nameW = ctx.measureText(NAME).width;
+    const name = { x: cx, y: Y(-1.6), size: nameSize };
+    boxes.push({ x: cx - nameW / 2 - fs, y: name.y - nameSize * 0.75, w: nameW + fs * 2, h: nameSize * 1.35 });
+
+    // Outline: walk each half of the curve by arc length, from the top dip down to the tip.
+    let order = 0;
+    for (const side of [1, -1]) {
+      const pts = [];
+      let len = 0;
+      for (let i = 0; i <= 900; i++) {
+        const t = i / 900 * Math.PI;
+        const p = [X(side * hx(t)), Y(hy(t))];
+        if (pts.length) { const q = pts[pts.length - 1]; len += Math.hypot(p[0] - q.p[0], p[1] - q.p[1]); }
+        pts.push({ p, len });
+      }
+      L = len;
+      const at = d => { let k = pts.findIndex(o => o.len >= d); if (k < 1) k = 1; return [pts[k].p, pts[k - 1].p]; };
+      let pos = fs * 0.4, pick = side === 1 ? 0 : 7;
+      while (pos < len - fs * 0.3) {
+        const text = PHRASES[pick % PHRASES.length];
+        const w = measure(text, fs), h = fs * 1.2;
+        const [[x1, y1], [x0, y0]] = at(pos);
+        const dl = Math.hypot(x1 - x0, y1 - y0) || 1;
+        const ext = Math.abs((x1 - x0) / dl) * w + Math.abs((y1 - y0) / dl) * h;
+        const [[cxp, py]] = at(Math.min(len, pos + ext / 2));
+        const px = clamp(cxp - w / 2, 8, W - 8 - w) + w / 2;  // keep wide phrases on screen
+        const b = { x: px - w / 2, y: py - h / 2, w, h };
+        if (!hits(b, 1)) {
+          boxes.push(b);
+          items.push({ text, x: px, y: py, size: fs, color: ARABIC.includes(text) ? ARABIC_COLOR : OUTLINE_COLOR,
+            t: T_OUT0 + (T_OUT1 - T_OUT0) * (pos / len), note: order++, edge: true, a: 1 });
+          pos += ext + fs * 0.25; pick++;
+        } else pos += 3;
+      }
+    }
+
+    // Fill: largest phrases first, packed inside the heart without touching.
+    const fill = [];
+    for (const k of [1.15, 0.95, 0.8, 0.68, 0.58, 0.5]) {
+      const size = Math.max(7, fs * k);
+      for (let a = 0; a < 2600; a++) {
+        const text = rand() < 0.06 ? ARABIC[rand() < 0.6 ? 0 : 1] : PHRASES[Math.floor(rand() * PHRASES.length)];
+        const w = measure(text, size), h = size * 1.2;
+        const px = X(-16 + rand() * 32), py = Y(-17 + rand() * 29);
+        const b = { x: px - w / 2, y: py - h / 2, w, h };
+        if (!(inside(b.x, b.y) && inside(b.x + b.w, b.y) && inside(b.x, b.y + b.h) && inside(b.x + b.w, b.y + b.h))) continue;
+        if (hits(b, Math.max(2, fs * 0.22))) continue;
+        boxes.push(b);
+        fill.push({ text, x: px, y: py, size, a: 0.45 + rand() * 0.35, d: Math.hypot(px - name.x, (py - name.y) * 1.3),
+          color: ARABIC.includes(text) ? ARABIC_COLOR : FILL_COLORS[Math.floor(rand() * FILL_COLORS.length)] });
+      }
+    }
+    // Fill from the edges in towards the name.
+    fill.sort((a, b) => b.d - a.d);
+    fill.forEach((f, i) => { f.t = T_FILL0 + (T_FILL1 - T_FILL0) * (i / fill.length) + rand() * 0.25; f.note = i; items.push(f); });
+
+    Object.assign(S, { name, cx, hcy: Y(-2.5), s });
+    cap.style.top = (Y(-17) + fs * 1.6) + "px";
+    window.__heart = { items: items.length, boxes, name, W, H };
+  }
+
+  function drawPhrase(c, it, scale = 1, alpha = 1, color = it.color) {
+    c.save();
+    c.globalAlpha = alpha;
+    c.translate(it.x, it.y); c.scale(scale, scale);
+    c.font = font(it.size);
+    c.fillStyle = color;
+    c.textAlign = "center"; c.textBaseline = "middle";
+    c.direction = isRTL(it.text) ? "rtl" : "ltr";
+    c.fillText(it.text, 0, 0);
+    c.restore();
+  }
+
+  // Heartbeat: a double bump every 1.6 s once the name is in.
+  const beat = u => {
+    if (u < 0 || reduce) return 1;
+    const ph = u % 1.6;
+    return 1 + 0.03 * Math.exp(-(((ph - 0.1) / 0.06) ** 2)) + 0.018 * Math.exp(-(((ph - 0.33) / 0.07) ** 2));
+  };
+
+  function frame(now) {
+    const t = (now - t0) / 1000;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+
+    const prog = clamp(t / T_NAME);
+    const { cx, hcy, s, name } = S;
+    const g = ctx.createRadialGradient(cx, hcy, 0, cx, hcy, s * 22);
+    g.addColorStop(0, `rgba(255,45,85,${0.05 + 0.13 * prog})`);
+    g.addColorStop(1, "rgba(255,45,85,0)");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+    const p = beat(t - T_NAME - 1.4);
+    ctx.save();
+    ctx.translate(cx, hcy); ctx.scale(p, p); ctx.translate(-cx, -hcy);
+
+    const active = [];
+    for (const it of items) {
+      const age = t - it.t;
+      if (age < 0) continue;
+      if (!it.played) { it.played = true; blip(it.note); }
+      if (age >= POP) {
+        if (!it.baked) {
+          bctx.shadowColor = it.color; bctx.shadowBlur = it.edge ? 12 : 0;
+          drawPhrase(bctx, it, 1, it.a); it.baked = true;
+        }
+      }
+      else active.push([it, age / POP]);
+    }
+    ctx.drawImage(bake, 0, 0, W, H);
+    for (const [it, k] of active) {
+      ctx.shadowColor = it.color; ctx.shadowBlur = 14 * (1 - k);
+      drawPhrase(ctx, it, 1 + 0.6 * (1 - easeOut(k)), easeOut(k) * (k < 0.35 ? 1 : it.a), k < 0.35 ? NAME_COLOR : it.color);
+    }
+    ctx.shadowBlur = 0;
+
+    const nk = clamp((t - T_NAME) / 1.4);
+    if (nk > 0) {
+      if (!S.chimed) { S.chimed = true; chord(); }
+      const e = easeOut(nk);
+      ctx.save();
+      ctx.globalAlpha = e;
+      ctx.translate(name.x, name.y); ctx.scale(1.25 - 0.25 * e, 1.25 - 0.25 * e);
+      ctx.font = nameFont(name.size);
+      ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.direction = "rtl";
+      ctx.shadowColor = OUTLINE_COLOR; ctx.shadowBlur = 34 * e;
+      ctx.fillStyle = NAME_COLOR;
+      ctx.fillText(NAME, 0, 0);
+      ctx.shadowBlur = 10; ctx.fillText(NAME, 0, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+
+    cap.classList.toggle("on", t > T_NAME + 1.2);
+    again.classList.toggle("on", t > T_NAME + 2.2);
+    requestAnimationFrame(frame);
+  }
+
+  // Sound: each phrase plays a soft music-box note; the name gets a warm chord. Starts only from the button.
+  let ac = null, master = null, soundOn = false;
+  const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
+  function tone(freq, when, dur, vol, type = "sine") {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(vol, when + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    o.connect(g).connect(master); o.start(when); o.stop(when + dur + 0.05);
+  }
+  function blip(n) {
+    if (!soundOn || !ac) return;
+    const now = ac.currentTime;
+    if (now - lastBlip < 0.11) return;
+    lastBlip = now;
+    tone(523.25 * 2 ** (SCALE[n % SCALE.length] / 12), now, 0.7, 0.05);
+  }
+  function chord() {
+    if (!soundOn || !ac) return;
+    const now = ac.currentTime;
+    [261.63, 329.63, 392, 493.88, 587.33].forEach((f, i) => tone(f, now + i * 0.09, 3.2, 0.045, "triangle"));
+  }
+  snd.addEventListener("click", () => {
+    if (!ac) {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      master = ac.createGain(); master.gain.value = 0.9; master.connect(ac.destination);
+    }
+    ac.resume();
+    soundOn = !soundOn;
+    snd.setAttribute("aria-pressed", soundOn);
+    snd.querySelector("span").textContent = soundOn ? "الصوت شغّال" : "شغّل الصوت";
+  });
+
+  function restart() {
+    S.chimed = false;
+    for (const it of items) { it.baked = false; it.played = false; }
+    bctx.clearRect(0, 0, W, H);
+    t0 = performance.now() - (reduce ? 60000 : 0);
+  }
+  again.addEventListener("click", () => { layout(); restart(); });
+
+  let rt;
+  addEventListener("resize", () => {
+    clearTimeout(rt);
+    rt = setTimeout(() => {
+      const el = (performance.now() - t0) / 1000;
+      layout();
+      for (const it of items) it.played = it.t < el;
+      S.chimed = el > T_NAME;
+    }, 150);
+  });
+
+  const fontsReady = Promise.race([
+    Promise.all([document.fonts.load('700 20px "Readex Pro"', "أحبك I love"), document.fonts.load('700 40px "Aref Ruqaa"', NAME)]),
+    new Promise(r => setTimeout(r, 2500))
+  ]).catch(() => {});
+  fontsReady.then(() => { layout(); restart(); requestAnimationFrame(frame); });
+})();
+</script>
