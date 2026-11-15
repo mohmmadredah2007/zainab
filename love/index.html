@@ -46,9 +46,12 @@ const Q = new URLSearchParams(location.search);
 const CAPTURE = Q.has('capture');
 const FREEZE = Q.has('t') ? parseFloat(Q.get('t')) : null;
 // the score is written in beats from bar 0; the film starts at beat 4, so a black screen leads into the countdown fast
-const W = 1080, H = 1920, BPM = 72, B = 60 / BPM, SH = 4 * B, at = b => b * B - SH, DUR = at(36);
-const T3 = at(6), T2 = at(8), T1 = at(10), TSIL = at(11.5), TLOVE = at(12), TZAIN = at(13), TQURRA = at(15);
-const TAR_OUT = at(19.2), TEN = [at(20), at(21), at(22), at(23)], TEN_OUT = at(27.1), TFIN = at(28);
+const W = 1080, H = 1920, BPM = 72, B = 60 / BPM, SH = 4 * B, at = b => b * B - SH, END = 44, DUR = at(END);
+const T3 = at(6), T2 = at(8), T1 = at(10), TSIL = at(11.5), TLOVE = at(12), TZAIN = at(13), TQURRA = at(15), TAR_OUT = at(19.2);
+// four photos, one every two beats, each with its word on the beat after it
+const PHOTOS = [['photos/1.jpg', 'عمري'], ['photos/2.jpg', 'روحي'], ['photos/3.jpg', 'طفلتي'], ['photos/4.jpg', 'حياتي']]
+  .map(([src, word], i) => ({ src, word, t: at(20 + i * 2), img: new Image(), rot: [-3.5, 3, -2.5, 3.5][i] }));
+const TPH_OUT = at(27.6), TEN = [at(28), at(29), at(30), at(31)], TEN_OUT = at(35.1), TFIN = at(36);
 
 const cv = document.getElementById('c'), cx = cv.getContext('2d');
 if (CAPTURE) document.documentElement.classList.add('capture');
@@ -63,22 +66,25 @@ const eBack = u => { u = clamp(u); const c = 1.7; return 1 + (c + 1) * Math.pow(
 
 // ---------- score (beats) ----------
 const CH = [[0, [53, 57, 60, 64]], [4, [50, 53, 57, 60]], [8, [46, 50, 53, 57]], [10, [48, 53, 55, 60]], [12, [53, 57, 60, 64]],
-  [16, [45, 52, 55, 60]], [20, [50, 53, 57, 60]], [24, [46, 50, 53, 57]], [28, [48, 52, 55, 58]], [32, [53, 57, 60, 67]]];
+  [16, [45, 52, 55, 60]], [20, [46, 50, 53, 57]], [24, [48, 52, 55, 60]],
+  [28, [50, 53, 57, 60]], [32, [46, 50, 53, 57]], [36, [48, 52, 55, 58]], [40, [53, 57, 60, 67]]];
 const chordIdx = b => { let i = 0; for (let k = 0; k < CH.length; k++) if (CH[k][0] <= b + 1e-6) i = k; return i; };
 const SCORE = (() => {
   const r = mulberry32(7), oud = [], pat = [0, 2, 1, 3, 2, 1, 3, 2];
-  for (let i = 8; i < 64; i++) {
+  for (let i = 8; i < (END - 4) * 2; i++) {
     const b = i * 0.5;
     if (b >= 11.5 && b < 12) continue;               // the silence before «أحبك»
     const [b0, n] = CH[chordIdx(b)], k = Math.round((b - b0) * 2);
     oud.push({ t: at(b), m: n[pat[k % 8]], v: (i % 8 === 0 ? 1 : i % 2 === 0 ? .8 : .62) * (.92 + .08 * r()) });
   }
-  CH[9][1].forEach((m, j) => oud.push({ t: at(32 + j * .09), m, v: .95 }));   // last rolled strum
+  CH[CH.length - 1][1].forEach((m, j) => oud.push({ t: at(END - 4 + j * .09), m, v: .95 }));   // last rolled strum
   const piano = [[0, 72, 3, .6], [4, 74, 3, .6], [12, 69, 2], [14, 72, 1], [15, 76, 1], [16, 76, 1.5], [17.5, 74, .5], [18, 72, 2],
-    [20, 74, 1], [21, 77, 1], [22, 76, 1], [23, 74, 1], [24, 72, 2], [26, 69, 2], [28, 67, 1], [29, 69, 1], [30, 70, 1], [31, 67, 1],
-    [32, 65, 4], [32, 69, 4], [32, 72, 4]].map(([b, m, d, v = 1]) => ({ t: at(b), m, d: d * B, v })).filter(n => n.t >= 0);
-  const bells = [[6, 84], [8, 81], [10, 79], [12, 81], [12, 84], [13, 88], [15, 81], [23, 86], [32, 89]].map(([b, m]) => ({ t: at(b), m }));
-  const pads = CH.map(([b, n], i) => ({ t0: Math.max(0, at(b)), t1: at(i + 1 < CH.length ? CH[i + 1][0] : 36), n })).filter(p => p.t1 > 0);
+    [20, 77, 2], [22, 74, 2], [24, 76, 2], [26, 72, 2],
+    [28, 74, 1], [29, 77, 1], [30, 76, 1], [31, 74, 1], [32, 72, 2], [34, 69, 2], [36, 67, 1], [37, 69, 1], [38, 70, 1], [39, 67, 1],
+    [40, 65, 4], [40, 69, 4], [40, 72, 4]].map(([b, m, d, v = 1]) => ({ t: at(b), m, d: d * B, v })).filter(n => n.t >= 0);
+  const bells = [[6, 84], [8, 81], [10, 79], [12, 81], [12, 84], [13, 88], [15, 81], [20, 89], [22, 86], [24, 88], [26, 84], [31, 86], [40, 89]]
+    .map(([b, m]) => ({ t: at(b), m }));
+  const pads = CH.map(([b, n], i) => ({ t0: Math.max(0, at(b)), t1: at(i + 1 < CH.length ? CH[i + 1][0] : END), n })).filter(p => p.t1 > 0);
   return { oud, piano, bells, pads };
 })();
 const PLUCK_T = SCORE.oud.map(o => o.t).sort((a, b) => a - b);
@@ -314,6 +320,22 @@ function render(t) {
     const u = t - TEN[3];
     if (u >= 0) { const fg = c.createLinearGradient(0, 860, 0, 1080); fg.addColorStop(0, '#fff0f7'); fg.addColorStop(1, '#ff4f9e'); glowText('Zainab', 540, 950, `800 250px ${BAL}`, fg, sstep(0, .2, u) * enOut, lerp(1.35, 1, eBack(u / .55)), 70); }
   }
+  // photos, one by one: a white card drops in on the beat, slow zoom inside, its word on the next beat
+  PHOTOS.forEach((p, i) => {
+    const u = t - p.t, end = i + 1 < PHOTOS.length ? PHOTOS[i + 1].t : TPH_OUT, v = t - end;
+    if (u < 0 || v > .45 || !p.img.naturalWidth) return;
+    const out = sstep(0, .45, v), al = sstep(0, .3, u) * (1 - out);
+    const ar = p.img.naturalWidth / p.img.naturalHeight, ch = Math.min(1040, 800 / ar), cw = ch * ar, bd = 18;
+    c.save(); c.globalAlpha = al; c.translate(540 - 160 * out * (i % 2 ? -1 : 1), 800 - 40 * (1 - eOut(u / .6)));
+    c.rotate((p.rot + 4 * out * (i % 2 ? -1 : 1)) * Math.PI / 180); c.scale(lerp(1.12, 1, eOut(u / .6)) * (1 - .08 * out), lerp(1.12, 1, eOut(u / .6)) * (1 - .08 * out));
+    c.shadowColor = 'rgba(255,80,165,.55)'; c.shadowBlur = 60 * K; c.fillStyle = '#fff7fb';
+    c.beginPath(); c.roundRect(-cw / 2 - bd, -ch / 2 - bd, cw + bd * 2, ch + bd * 2, 30); c.fill(); c.shadowBlur = 0;
+    c.beginPath(); c.roundRect(-cw / 2, -ch / 2, cw, ch, 18); c.clip();
+    const z = 1 + .07 * clamp(u / 2.2); c.drawImage(p.img, -cw * z / 2, -ch * z / 2, cw * z, ch * z);
+    c.restore();
+    const uw = t - (p.t + B);
+    if (uw >= 0) glowText(p.word, 540, 1470 - 24 * (1 - eOut(uw / .45)), `700 170px ${AR}`, '#ffe6f2', sstep(0, .22, uw) * (1 - out), lerp(1.2, 1, eOut(uw / .45)), 55);
+  });
   // silence: everything holds its breath
   if (sil > 0) { c.fillStyle = `rgba(6,2,10,${.5 * sil})`; c.fillRect(0, 0, W, H); }
   // final: the cat comes forward, both lines together, hearts rise
@@ -321,13 +343,13 @@ function render(t) {
     FLOAT.forEach(h => { const y = H + 60 - (((t - TFIN) * h.sp + h.p * (H + 120)) % (H + 120)); c.globalAlpha = .55 * fin; c.fillStyle = '#ff6fb3'; heartPath(c, h.x + Math.sin(t * .8 + h.w) * 20, y, h.s); c.fill(); });
     c.globalAlpha = 1;
     const fg = c.createLinearGradient(0, 350, 0, 520); fg.addColorStop(0, '#fff0f7'); fg.addColorStop(1, '#ff5aa5');
-    glowText('أحبك زينب', 540, 420, `700 150px ${AR}`, fg, sstep(at(29), at(29) + .5, t), 1, 50);
-    glowText('يا قرة عيني', 540, 580, `700 110px ${AR}`, '#ffe6f2', sstep(at(30), at(30) + .5, t), 1, 36);
-    glowText('I love you Zainab', 540, 720, `800 86px ${BAL}`, '#ffd0e6', sstep(at(31), at(31) + .5, t), 1, 36);
+    glowText('أحبك زينب', 540, 420, `700 150px ${AR}`, fg, sstep(at(37), at(37) + .5, t), 1, 50);
+    glowText('يا قرة عيني', 540, 580, `700 110px ${AR}`, '#ffe6f2', sstep(at(38), at(38) + .5, t), 1, 36);
+    glowText('I love you Zainab', 540, 720, `800 86px ${BAL}`, '#ffd0e6', sstep(at(39), at(39) + .5, t), 1, 36);
   }
   const look = sstep(TSIL - .1, TSIL + .05, t) * (1 - sstep(TLOVE, TLOVE + .25, t));
   const mv = sstep(TFIN, TFIN + 1.6, t);
-  const rise = eOut((t - TAR_OUT) / 1.3);           // the cat comes up after «يا قرة عيني»
+  const rise = eOut((t - TPH_OUT) / 1.3);           // the cat comes up after the photos
   if (rise > 0) drawCat(t, 540, lerp(1845, 1590, mv) + 800 * (1 - rise), lerp(1.04, 1.28, mv), look, fin);
   // flash on «أحبك»
   if (t >= TLOVE && t < TLOVE + 1.5) { const a = .42 * Math.exp(-(t - TLOVE) * 3); const fl = c.createRadialGradient(540, 700, 10, 540, 700, 900); fl.addColorStop(0, `rgba(255,150,205,${a})`); fl.addColorStop(1, 'rgba(255,150,205,0)'); c.fillStyle = fl; c.fillRect(0, 0, W, H); }
@@ -345,6 +367,8 @@ const fontsReady = Promise.all([
   document.fonts.load(`700 100px ${AR}`, 'أحبك زينب يا قرة عيني'),
   document.fonts.load(`800 100px ${BAL}`, '123 I love you Zainab'),
   document.fonts.load(`800 100px ${BAL}`, 'زينبأحبكقرعي'),
+  document.fonts.load(`700 100px ${AR}`, 'عمري روحي طفلتي حياتي'),
+  ...PHOTOS.map(p => { p.img.src = p.src; return p.img.decode(); }),
 ]).catch(() => {}).then(() => document.fonts.ready);
 
 window.__film = { render, duration: DUR, width: W, height: H, ready: false, audioWav: async () => wavB64(await music()) };
