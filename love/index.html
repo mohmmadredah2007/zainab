@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>لزينب</title>
+<meta name="theme-color" content="#12061f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@700&family=Baloo+Bhaijaan+2:wght@800&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0412; overflow: hidden; }
+  body { display: grid; place-items: center; font-family: "Baloo Bhaijaan 2", system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+  canvas { display: block; }
+  .btn {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    border: 1px solid rgba(255, 170, 210, .45); border-radius: 999px; cursor: pointer;
+    background: rgba(40, 10, 40, .55); color: #ffe3f0; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    font: 800 20px "Baloo Bhaijaan 2", system-ui, sans-serif; padding: 12px 26px;
+    box-shadow: 0 0 40px rgba(255, 80, 160, .35);
+  }
+  #start { top: 50%; transform: translate(-50%, -50%); white-space: nowrap; display: flex; flex-direction: column; align-items: center; gap: 6px;
+    border-radius: 32px; padding: 26px 34px 20px; font-size: 24px; }
+  #start svg { width: 84px; height: 84px; animation: beat 1.66s ease-in-out infinite; filter: drop-shadow(0 0 18px rgba(255, 80, 160, .8)); }
+  #start small { font-size: 14px; opacity: .7; font-weight: 800; }
+  #again { bottom: max(22px, env(safe-area-inset-bottom)); display: none; }
+  #veil { position: fixed; inset: 0; background: rgba(8, 2, 14, .55); }
+  @keyframes beat { 0%, 100% { transform: scale(1); } 12% { transform: scale(1.14); } 24% { transform: scale(1); } 36% { transform: scale(1.08); } }
+  @media (prefers-reduced-motion: reduce) { #start svg { animation: none; } }
+  .capture .btn, .capture #veil { display: none !important; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="veil"></div>
+<button class="btn" id="start" aria-label="ابدئي">
+  <svg viewBox="-32 -34 64 52" aria-hidden="true"><path d="M0 14 C-34 -8 -16 -34 0 -16 C16 -34 34 -8 0 14Z" fill="#ff5fa8"/></svg>
+  <span>المسي القلب</span>
+  <small>الصوت يشتغل 🔊</small>
+</button>
+<button class="btn" id="again">↺ مرة ثانية</button>
+<script>
+// Everything on screen is a pure function of t (seconds); the music is built from the same score,
+// so the cat's paw, the words and the notes all land on the beat. ?capture=1 for film.py, ?t=12 to freeze.
+const Q = new URLSearchParams(location.search);
+const CAPTURE = Q.has('capture');
+const FREEZE = Q.has('t') ? parseFloat(Q.get('t')) : null;
+// the score is written in beats from bar 0; the film starts at beat 4, so a black screen leads into the countdown fast
+const W = 1080, H = 1920, BPM = 72, B = 60 / BPM, SH = 4 * B, at = b => b * B - SH, DUR = at(36);
+const T3 = at(6), T2 = at(8), T1 = at(10), TSIL = at(11.5), TLOVE = at(12), TZAIN = at(13), TQURRA = at(15);
+const TAR_OUT = at(19.2), TEN = [at(20), at(21), at(22), at(23)], TEN_OUT = at(27.1), TFIN = at(28);
+
+const cv = document.getElementById('c'), cx = cv.getContext('2d');
+if (CAPTURE) document.documentElement.classList.add('capture');
+
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function hash(n) { n = Math.imul(n ^ n >>> 16, 0x45d9f3b); n = Math.imul(n ^ n >>> 16, 0x45d9f3b); return (n ^ n >>> 16) >>> 0; }
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, u) => a + (b - a) * u;
+const sstep = (a, b, x) => { const u = clamp((x - a) / (b - a)); return u * u * (3 - 2 * u); };
+const eOut = u => 1 - Math.pow(1 - clamp(u), 3);
+const eBack = u => { u = clamp(u); const c = 1.7; return 1 + (c + 1) * Math.pow(u - 1, 3) + c * Math.pow(u - 1, 2); };
+
+// ---------- score (beats) ----------
+const CH = [[0, [53, 57, 60, 64]], [4, [50, 53, 57, 60]], [8, [46, 50, 53, 57]], [10, [48, 53, 55, 60]], [12, [53, 57, 60, 64]],
+  [16, [45, 52, 55, 60]], [20, [50, 53, 57, 60]], [24, [46, 50, 53, 57]], [28, [48, 52, 55, 58]], [32, [53, 57, 60, 67]]];
+const chordIdx = b => { let i = 0; for (let k = 0; k < CH.length; k++) if (CH[k][0] <= b + 1e-6) i = k; return i; };
+const SCORE = (() => {
+  const r = mulberry32(7), oud = [], pat = [0, 2, 1, 3, 2, 1, 3, 2];
+  for (let i = 8; i < 64; i++) {
+    const b = i * 0.5;
+    if (b >= 11.5 && b < 12) continue;               // the silence before «أحبك»
+    const [b0, n] = CH[chordIdx(b)], k = Math.round((b - b0) * 2);
+    oud.push({ t: at(b), m: n[pat[k % 8]], v: (i % 8 === 0 ? 1 : i % 2 === 0 ? .8 : .62) * (.92 + .08 * r()) });
+  }
+  CH[9][1].forEach((m, j) => oud.push({ t: at(32 + j * .09), m, v: .95 }));   // last rolled strum
+  const piano = [[0, 72, 3, .6], [4, 74, 3, .6], [12, 69, 2], [14, 72, 1], [15, 76, 1], [16, 76, 1.5], [17.5, 74, .5], [18, 72, 2],
+    [20, 74, 1], [21, 77, 1], [22, 76, 1], [23, 74, 1], [24, 72, 2], [26, 69, 2], [28, 67, 1], [29, 69, 1], [30, 70, 1], [31, 67, 1],
+    [32, 65, 4], [32, 69, 4], [32, 72, 4]].map(([b, m, d, v = 1]) => ({ t: at(b), m, d: d * B, v })).filter(n => n.t >= 0);
+  const bells = [[6, 84], [8, 81], [10, 79], [12, 81], [12, 84], [13, 88], [15, 81], [23, 86], [32, 89]].map(([b, m]) => ({ t: at(b), m }));
+  const pads = CH.map(([b, n], i) => ({ t0: Math.max(0, at(b)), t1: at(i + 1 < CH.length ? CH[i + 1][0] : 36), n })).filter(p => p.t1 > 0);
+  return { oud, piano, bells, pads };
+})();
+const PLUCK_T = SCORE.oud.map(o => o.t).sort((a, b) => a - b);
+function lastPluck(t) { let lo = -1; for (let i = 0; i < PLUCK_T.length && PLUCK_T[i] <= t; i++) lo = i; return lo; }
+
+// ---------- music (WebAudio, rendered offline so page and video share one track) ----------
+function build(ac) {
+  const sr = ac.sampleRate, rng = mulberry32(11), mf = m => 440 * Math.pow(2, (m - 69) / 12);
+  const gate = ac.createGain(), comp = ac.createDynamicsCompressor(), mix = ac.createGain();
+  comp.threshold.value = -18; comp.ratio.value = 3; comp.attack.value = .01; comp.release.value = .25;
+  mix.connect(gate); gate.connect(comp); comp.connect(ac.destination);
+  const rev = ac.createConvolver(), irN = Math.floor(sr * 3.2), ir = ac.createBuffer(2, irN, sr);
+  for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < irN; i++) d[i] = (rng() * 2 - 1) * Math.pow(1 - i / irN, 3); }
+  rev.buffer = ir;
+  const send = ac.createGain(); send.gain.value = .3; mix.connect(send); send.connect(rev);
+  const wet = ac.createGain(); wet.gain.value = .7; rev.connect(wet); wet.connect(gate);
+  const G = gate.gain;                                  // true silence 0.4 s before «أحبك», fade at the end
+  G.setValueAtTime(1, 0); G.setValueAtTime(1, TSIL - .06); G.linearRampToValueAtTime(0, TSIL + .02);
+  G.setValueAtTime(0, TLOVE - .006); G.linearRampToValueAtTime(1, TLOVE);
+  G.setValueAtTime(1, DUR - 1.8); G.linearRampToValueAtTime(0, DUR - .05);
+
+  const voice = (t, f, peak, att, tau, tEnd, rel, type = 'sine', dest = mix, stop) => {
+    const o = ac.createOscillator(), g = ac.createGain(); o.type = type; o.frequency.value = f;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(peak, t + att); g.gain.setTargetAtTime(0, t + att, tau);
+    if (tEnd) g.gain.setTargetAtTime(0, tEnd, rel);
+    o.connect(g); g.connect(dest); o.start(t); o.stop(stop || t + tau * 7);
+  };
+  SCORE.piano.forEach(n => [[1, 1, 1.3], [2, .3, .6], [3, .1, .35], [4.02, .04, .2]].forEach(([r, a, tau]) =>
+    voice(n.t, mf(n.m) * r, .1 * n.v * a, .006, tau, n.t + n.d, .2, 'sine', mix, n.t + n.d + 1.5)));
+  SCORE.bells.forEach(n => [[1, 1, 1.5], [2.76, .35, .5], [5.4, .12, .22]].forEach(([r, a, tau]) =>
+    voice(n.t, mf(n.m) * r, .055 * a, .003, tau)));
+  SCORE.pads.forEach(p => {
+    const lp = ac.createBiquadFilter(), g = ac.createGain(); lp.type = 'lowpass'; lp.frequency.value = 950; lp.Q.value = .4;
+    g.gain.setValueAtTime(0, p.t0); g.gain.linearRampToValueAtTime(.045, p.t0 + .9); g.gain.setValueAtTime(.045, p.t1); g.gain.setTargetAtTime(0, p.t1, .45);
+    lp.connect(g); g.connect(mix);
+    p.n.forEach(m => [-7, 7].forEach(dc => { const o = ac.createOscillator(), og = ac.createGain(); o.type = 'sawtooth'; o.frequency.value = mf(m + 12); o.detune.value = dc; og.gain.value = .2; o.connect(og); og.connect(lp); o.start(p.t0); o.stop(p.t1 + 3); }));
+    voice(p.t0, mf(p.n[0] - 12), .14, .03, 1.6, p.t1 - .05, .12, 'triangle', mix, p.t1 + 1);   // soft bass
+  });
+  // the cat's oud: Karplus-Strong plucked strings
+  const oudBus = ac.createBiquadFilter(), hp = ac.createBiquadFilter(), body = ac.createBiquadFilter();
+  oudBus.type = 'lowpass'; oudBus.frequency.value = 2700; hp.type = 'highpass'; hp.frequency.value = 75;
+  body.type = 'peaking'; body.frequency.value = 230; body.gain.value = 4; body.Q.value = 1.2;
+  oudBus.connect(body); body.connect(hp); hp.connect(mix);
+  const cache = {};
+  const ks = m => {
+    if (cache[m]) return cache[m];
+    const Ni = Math.max(2, Math.round(sr / mf(m) - .5)), len = Math.floor(sr * 2.4), b = ac.createBuffer(1, len, sr), d = b.getChannelData(0), r = mulberry32(m * 97);
+    let prev = 0; for (let i = 0; i < Ni; i++) { prev = prev * .45 + (r() * 2 - 1) * .55; d[i] = prev; }
+    for (let i = Ni; i < len; i++) d[i] = .996 * .5 * (d[i - Ni] + (d[i - Ni - 1] || 0));
+    return (cache[m] = b);
+  };
+  SCORE.oud.forEach(n => { const s = ac.createBufferSource(), g = ac.createGain(); s.buffer = ks(n.m); g.gain.value = .42 * n.v; s.connect(g); g.connect(oudBus); s.start(n.t); });
+}
+let musicP = null;
+function music() {
+  return musicP || (musicP = (async () => {
+    const sr = 44100, oc = new OfflineAudioContext(2, Math.ceil(DUR * sr), sr); build(oc);
+    const buf = await oc.startRendering(); let pk = 0;
+    for (let c = 0; c < 2; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) pk = Math.max(pk, Math.abs(d[i])); }
+    const k = .89 / (pk || 1); for (let c = 0; c < 2; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) d[i] *= k; }
+    return buf;
+  })());
+}
+function wavB64(b) {
+  const n = b.length, L = b.getChannelData(0), R = b.getChannelData(1), ab = new ArrayBuffer(44 + n * 4), v = new DataView(ab);
+  const ws = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, 'RIFF'); v.setUint32(4, 36 + n * 4, true); ws(8, 'WAVE'); ws(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 2, true);
+  v.setUint32(24, b.sampleRate, true); v.setUint32(28, b.sampleRate * 4, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true); ws(36, 'data'); v.setUint32(40, n * 4, true);
+  for (let i = 0, o = 44; i < n; i++, o += 4) { v.setInt16(o, clamp(L[i], -1, 1) * 32767, true); v.setInt16(o + 2, clamp(R[i], -1, 1) * 32767, true); }
+  const u8 = new Uint8Array(ab); let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+// ---------- picture ----------
+let K = 1;
+const AR = '"Aref Ruqaa", serif', BAL = '"Baloo Bhaijaan 2", system-ui, sans-serif';
+const COLS = (() => { const r = mulberry32(3), a = []; for (let i = 0; i < 27; i++) a.push({ x: 20 + i * 40, sp: 110 + r() * 170, off: r() * 3000, len: 9 + Math.floor(r() * 14), seed: Math.floor(r() * 1e6), sz: 24 + Math.floor(r() * 10) }); return a; })();
+const GL = 'زينبأحبكقرعي♥'.split('');
+const STARS = (() => { const r = mulberry32(5), a = []; for (let i = 0; i < 170; i++) a.push({ x: r() * W, y: r() * 1650, r: .8 + r() * 1.8, w: .6 + r() * 1.8, p: r() * 6.28 }); return a; })();
+const FLOAT = (() => { const r = mulberry32(9), a = []; for (let i = 0; i < 20; i++) a.push({ x: 60 + r() * 960, s: 16 + r() * 30, sp: 70 + r() * 90, p: r(), w: r() * 6.28 }); return a; })();
+
+function heartPath(c, x, y, s) { c.save(); c.translate(x, y); c.scale(s / 32, s / 32); c.beginPath(); c.moveTo(0, 13); c.bezierCurveTo(-34, -8, -16, -34, 0, -16); c.bezierCurveTo(16, -34, 34, -8, 0, 13); c.closePath(); c.restore(); }
+function notePath(c, x, y, s) { c.save(); c.translate(x, y); c.scale(s, s); c.beginPath(); c.ellipse(0, 0, 10, 7.5, -.4, 0, 6.3); c.rect(7, -38, 3.4, 38); c.moveTo(10.4, -38); c.quadraticCurveTo(28, -28, 19, -11); c.quadraticCurveTo(22, -25, 10.4, -28); c.restore(); }
+function glowText(s, x, y, font, fill, alpha, scale = 1, blur = 50, glow = 'rgba(255,70,150,.9)') {
+  if (alpha <= .003) return;
+  const c = cx; c.save(); c.globalAlpha = alpha; c.translate(x, y); c.scale(scale, scale);
+  c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle'; c.direction = /[؀-ۿ]/.test(s) ? 'rtl' : 'ltr';
+  c.shadowColor = glow; c.shadowBlur = blur * K * scale; c.fillStyle = fill; c.fillText(s, 0, 0); c.shadowBlur = 0; c.fillText(s, 0, 0); c.restore();
+}
+function measure(s, font) { cx.font = font; cx.direction = /[؀-ۿ]/.test(s) ? 'rtl' : 'ltr'; return cx.measureText(s).width; }
+
+function rain(t, A) {
+  if (A < .01) return;
+  const c = cx, cell = 44; c.textAlign = 'center'; c.textBaseline = 'middle'; c.direction = 'rtl';
+  for (const k of COLS) {
+    const span = H + k.len * cell, pos = k.off + t * k.sp, head = pos % span, row0 = Math.floor(pos / cell);
+    c.font = `800 ${k.sz}px ${BAL}`;
+    for (let j = 0; j < k.len; j++) {
+      const y = head - j * cell; if (y < -30 || y > H + 30) continue;
+      const g = GL[hash(k.seed + (row0 - j) * 7 + Math.floor(t * 2.5 + j * .3)) % GL.length];
+      const a = Math.pow(1 - j / k.len, 1.6) * A * (1 - .85 * sstep(1200, 1560, y));
+      c.fillStyle = j === 0 ? `rgba(255,228,242,${a})` : `rgba(255,79,163,${a * .85})`; c.fillText(g, k.x, y);
+    }
+  }
+}
+
+// cat-local units: origin = where it sits, y up is negative
+const OX = -25, OY = -128, OR = -.3;
+const o2c = (px, py) => [OX + px * Math.cos(OR) - py * Math.sin(OR), OY + px * Math.sin(OR) + py * Math.cos(OR)];
+function drawCat(t, X, Y, s, look, fin) {
+  const c = cx, OUT = '#3b2140', FUR = '#fff3e6', PINK = '#ffb4cf';
+  const li = lastPluck(t), dp = li < 0 ? 9 : t - PLUCK_T[li];
+  const fillOut = (f, lw = 7) => { c.fillStyle = f; c.fill(); c.lineWidth = lw; c.strokeStyle = OUT; c.stroke(); };
+  const limb = (x0, y0, x1, y1) => { c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.lineWidth = 44; c.strokeStyle = OUT; c.stroke(); c.lineWidth = 30; c.strokeStyle = FUR; c.stroke(); c.beginPath(); c.arc(x1, y1, 22, 0, 6.3); fillOut(FUR, 6); };
+  c.save(); c.translate(X, Y); c.scale(s, s); c.lineJoin = 'round'; c.lineCap = 'round';
+  // hill and moon belong to the cat's little world
+  const mg = c.createRadialGradient(215, -440, 10, 215, -440, 260); mg.addColorStop(0, 'rgba(255,236,214,.95)'); mg.addColorStop(.42, 'rgba(255,224,200,.9)'); mg.addColorStop(.46, 'rgba(255,170,210,.18)'); mg.addColorStop(1, 'rgba(255,120,190,0)');
+  c.fillStyle = mg; c.beginPath(); c.arc(215, -440, 260, 0, 6.3); c.fill();
+  c.fillStyle = '#170a24'; c.beginPath(); c.ellipse(0, 330, 820, 360, 0, 0, 6.3); c.fill();
+  c.strokeStyle = 'rgba(255,120,190,.35)'; c.lineWidth = 4; c.beginPath(); c.ellipse(0, 330, 820, 360, 0, 3.6, 5.82); c.stroke();
+  // tail
+  const sw = Math.sin(t * 1.7) * 24;
+  c.beginPath(); c.moveTo(95, -40); c.bezierCurveTo(205, -40, 195 + sw, -150, 150 + sw * 1.4, -235);
+  c.lineWidth = 46; c.strokeStyle = OUT; c.stroke(); c.lineWidth = 32; c.strokeStyle = FUR; c.stroke();
+  // body and feet
+  c.beginPath(); c.ellipse(0, -138, 125, 142, 0, 0, 6.3); fillOut(FUR);
+  c.beginPath(); c.ellipse(0, -110, 70, 85, 0, 0, 6.3); c.fillStyle = '#ffe6ef'; c.fill();
+  [-72, 72].forEach(x => { c.beginPath(); c.ellipse(x, -12, 50, 26, 0, 0, 6.3); fillOut(FUR); });
+  // oud
+  c.save(); c.translate(OX, OY); c.rotate(OR);
+  const wg = c.createRadialGradient(-20, -10, 10, -10, 0, 120); wg.addColorStop(0, '#f8d39a'); wg.addColorStop(1, '#c47a3a');
+  c.beginPath(); c.moveTo(95, -24); c.bezierCurveTo(40, -98, -118, -98, -118, 0); c.bezierCurveTo(-118, 98, 40, 98, 95, 24); c.closePath(); fillOut(wg);
+  c.fillStyle = '#7a4422'; c.strokeStyle = OUT; c.lineWidth = 6; c.beginPath(); c.rect(88, -14, 168, 28); c.fill(); c.stroke();
+  c.fillStyle = '#3d2213'; c.fillRect(55, -11, 200, 22);
+  c.save(); c.translate(255, 0); c.rotate(.95); c.beginPath(); c.rect(-4, -13, 72, 26); c.fillStyle = '#7a4422'; c.fill(); c.stroke();
+  c.fillStyle = '#f2d3a5'; [16, 33, 50].forEach(x => { c.beginPath(); c.arc(x, -19, 5, 0, 6.3); c.arc(x, 19, 5, 0, 6.3); c.fill(); }); c.restore();
+  [[0, 0, 21], [-48, -42, 9], [-48, 42, 9]].forEach(([x, y, r]) => { c.beginPath(); c.arc(x, y, r, 0, 6.3); c.fillStyle = '#5a2e17'; c.fill(); c.lineWidth = 3; c.strokeStyle = '#8a4a22'; c.beginPath(); c.arc(x, y, r + 6, 0, 6.3); c.stroke(); });
+  c.fillStyle = '#5a2e17'; c.fillRect(-82, -26, 11, 52);
+  const vib = 2.6 * Math.exp(-dp * 6) * Math.sin(t * 95);
+  c.strokeStyle = 'rgba(255,248,234,.95)'; c.lineWidth = 1.7;
+  [-7.5, -2.5, 2.5, 7.5].forEach((y, i) => { c.beginPath(); c.moveTo(-76, y); c.quadraticCurveTo(90, y + vib * (i % 2 ? 1 : -1), 256, y); c.stroke(); });
+  c.restore();
+  // arms: the right paw strums on every pluck, the left one moves along the neck with the chords
+  const ci = chordIdx((t + SH) / B), cT = at(CH[ci][0]), fxs = [150, 190, 120, 175];
+  const fx = lerp(fxs[(ci + 3) % 4], fxs[ci % 4], eOut((t - cT) / .2));
+  const strum = dp < .06 ? dp / .06 : Math.exp(-(dp - .06) * 7);
+  const [sx, sy] = o2c(-26, -42 + 64 * strum), [fpx, fpy] = o2c(fx, -2);
+  limb(84, -205, fpx, fpy);
+  limb(-82, -195, sx, sy);
+  // head
+  c.save(); c.translate(0, -305); c.rotate(.07 * Math.sin(Math.PI * t / B) * (1 - look));
+  const ear = look * 14;
+  [-1, 1].forEach(d => {
+    c.beginPath(); c.moveTo(d * 102, -28); c.lineTo(d * 80, -130 - ear); c.lineTo(d * 24, -84); c.closePath(); fillOut(FUR);
+    c.beginPath(); c.moveTo(d * 88, -46); c.lineTo(d * 77, -108 - ear); c.lineTo(d * 44, -80); c.closePath(); c.fillStyle = PINK; c.fill();
+  });
+  c.beginPath(); c.ellipse(0, 0, 124, 100, 0, 0, 6.3); fillOut(FUR);
+  c.fillStyle = '#ff5fa2'; c.strokeStyle = OUT; c.lineWidth = 4;
+  [[1, 1], [-1, 1]].forEach(([d]) => { c.beginPath(); c.moveTo(70, -98); c.lineTo(70 + d * 30, -114); c.lineTo(70 + d * 30, -80); c.closePath(); c.fill(); c.stroke(); });
+  c.beginPath(); c.arc(70, -97, 8, 0, 6.3); c.fill(); c.stroke();
+  c.fillStyle = 'rgba(255,143,184,.55)'; [-1, 1].forEach(d => { c.beginPath(); c.ellipse(d * 72, 30, 23, 13, 0, 0, 6.3); c.fill(); });
+  c.strokeStyle = OUT; c.lineWidth = 7;
+  if (look > .5) {
+    [-46, 46].forEach(x => { c.beginPath(); c.ellipse(x, -2, 16, 20, 0, 0, 6.3); c.fillStyle = OUT; c.fill(); c.beginPath(); c.arc(x - 5, -10, 6, 0, 6.3); c.fillStyle = '#fff'; c.fill(); });
+  } else {
+    [-46, 46].forEach(x => { c.beginPath(); c.arc(x, 6, 18, Math.PI * 1.12, Math.PI * 1.88); c.stroke(); });
+  }
+  c.beginPath(); c.moveTo(-10, 18); c.lineTo(10, 18); c.lineTo(0, 29); c.closePath(); c.fillStyle = '#ff7aa8'; c.fill();
+  c.lineWidth = 5; c.beginPath(); c.arc(-9, 31, 9, .1, Math.PI - .1); c.stroke(); c.beginPath(); c.arc(9, 31, 9, .1, Math.PI - .1); c.stroke();
+  c.lineWidth = 4; c.globalAlpha = .8;
+  [-1, 1].forEach(d => [[12, 2], [24, 24], [36, 46]].forEach(([y0, y1]) => { c.beginPath(); c.moveTo(d * 86, y0); c.lineTo(d * 155, y1 - 8); c.stroke(); }));
+  c.restore();
+  // notes (hearts at the end) rising from the oud
+  const [nx, ny] = o2c(-90, -60);
+  for (let i = Math.max(0, li - 12); i <= li; i++) {
+    if (i % 3) continue; const a = t - PLUCK_T[i]; if (a < 0 || a > 2.6) continue;
+    const al = sstep(0, .15, a) * (1 - sstep(1.5, 2.6, a)), x = nx + Math.sin(a * 2.2 + i) * 22 - a * (55 + (i % 2) * 30), y = ny - a * 110;
+    c.globalAlpha = al; c.fillStyle = '#ff7cbf'; c.shadowColor = 'rgba(255,90,170,.8)'; c.shadowBlur = 16 * K * s;
+    (PLUCK_T[i] >= TFIN || fin > .5) ? heartPath(c, x, y, 34) : notePath(c, x, y, 1.1); c.fill();
+  }
+  c.restore();
+}
+
+function render(t) {
+  const c = cx; c.setTransform(K, 0, 0, K, 0, 0); c.globalAlpha = 1; c.shadowBlur = 0;
+  // black screen for the countdown; the night lights up on «أحبك»
+  const world = sstep(TLOVE, TLOVE + .9, t);
+  c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
+  const bg = c.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#12061f'); bg.addColorStop(.6, '#1d0a2a'); bg.addColorStop(1, '#2a0d2e');
+  c.globalAlpha = world; c.fillStyle = bg; c.fillRect(0, 0, W, H); c.globalAlpha = 1;
+  const sil = sstep(TSIL - .05, TSIL + .08, t) * (1 - sstep(TLOVE - .01, TLOVE + .01, t));
+  const fin = sstep(TFIN, TFIN + 1.4, t), playing = t < DUR - 1.8 && !(t > TSIL && t < TLOVE);
+  const pulse = playing ? Math.exp(-((t % B) / B) * 5) : 0;
+  // glow behind the words, breathing on the beat
+  const gl = c.createRadialGradient(540, 790, 20, 540, 790, 620); gl.addColorStop(0, `rgba(255,70,160,${(.16 + .07 * pulse) * world})`); gl.addColorStop(1, 'rgba(255,70,160,0)');
+  c.fillStyle = gl; c.fillRect(0, 0, W, H);
+  // stars
+  const sa = (.35 + .65 * fin) * world;
+  for (const st of STARS) { const a = sa * (.35 + .65 * Math.pow(Math.sin(t * st.w + st.p), 2)); c.fillStyle = `rgba(255,240,250,${a})`; c.beginPath(); c.arc(st.x, st.y, st.r, 0, 6.3); c.fill(); }
+  // pink rain of «زينب» letters and hearts
+  const ra = world * lerp(1, .42, sstep(TLOVE + .4, TLOVE + 1.2, t));
+  rain(t, ra * (1 - sstep(TFIN, TFIN + 1.4, t)));
+  // countdown 3 · 2 · 1
+  [[3, T3, T2], [2, T2, T1], [1, T1, TSIL]].forEach(([n, a, b]) => {
+    if (t < a || t > b) return; const u = t - a;
+    const al = sstep(0, .14, u) * (1 - sstep(b - a - .2, b - a, u)), sc = lerp(1.32, 1, eBack(u / .45)) * (1 - .06 * sstep(b - a - .2, b - a, u));
+    c.save(); c.globalAlpha = al * (1 - clamp(u / .8)); c.strokeStyle = '#ff6fb5'; c.lineWidth = 6; c.beginPath(); c.arc(540, 800, 190 + eOut(u / .8) * 260, 0, 6.3); c.stroke(); c.restore();
+    const fg = c.createLinearGradient(0, 600, 0, 1000); fg.addColorStop(0, '#ffe3f0'); fg.addColorStop(1, '#ff4f9e');
+    glowText(String(n), 540, 820, `800 440px ${BAL}`, fg, al, sc, 70);
+  });
+  // «أحبك زينب» then «يا قرة عيني»
+  const arOut = 1 - sstep(TAR_OUT, TAR_OUT + .55, t);
+  if (t >= TLOVE && arOut > 0) {
+    const f1 = `700 210px ${AR}`, wA = measure('أحبك', f1), wZ = measure('زينب', f1), gap = 46, tot = wA + gap + wZ;
+    const slide = eOut((t - TZAIN) / .45), xA = lerp(540, 540 + tot / 2 - wA / 2, slide), xZ = 540 - tot / 2 + wZ / 2;
+    const fg = c.createLinearGradient(0, 590, 0, 810); fg.addColorStop(0, '#fff0f7'); fg.addColorStop(1, '#ff5aa5');
+    const uA = t - TLOVE, uZ = t - TZAIN;
+    glowText('أحبك', xA, 690 + 30 * (1 - eOut(uA / .5)), f1, fg, sstep(0, .22, uA) * arOut, lerp(1.25, 1, eOut(uA / .5)), 60);
+    if (uZ >= 0) glowText('زينب', xZ, 690 + 30 * (1 - eOut(uZ / .5)), f1, fg, sstep(0, .22, uZ) * arOut, lerp(1.25, 1, eOut(uZ / .5)), 60);
+    if (t >= TQURRA) {
+      const f2 = `700 150px ${AR}`, w2 = measure('يا قرة عيني', f2), p = eOut((t - TQURRA) / 1.1), right = 540 + w2 / 2 + 30;
+      c.save(); c.beginPath(); c.rect(right - (w2 + 60) * p, 820, (w2 + 60) * p, 260); c.clip();
+      glowText('يا قرة عيني', 540, 950, f2, '#ffe6f2', arOut, 1, 40); c.restore();
+      c.fillStyle = '#ff5fa8'; c.globalAlpha = arOut * sstep(TQURRA + .6, TQURRA + 1, t); heartPath(c, 540, 1110, 40 * (1 + .18 * pulse)); c.fill(); c.globalAlpha = 1;
+    }
+  }
+  // «I love you Zainab», one word per beat
+  const enOut = 1 - sstep(TEN_OUT, TEN_OUT + .55, t);
+  if (t >= TEN[0] && enOut > 0) {
+    const f1 = `800 150px ${BAL}`, words = ['I', 'love', 'you'], sp = measure(' ', f1), ws = words.map(w => measure(w, f1));
+    const tot = ws.reduce((a, b) => a + b, 0) + sp * 2; let x = 540 - tot / 2;
+    words.forEach((w, i) => { const u = t - TEN[i]; if (u >= 0) glowText(w, x + ws[i] / 2, 740 - 26 * (1 - eOut(u / .4)), f1, '#ffe6f2', sstep(0, .18, u) * enOut, lerp(1.15, 1, eOut(u / .4)), 45); x += ws[i] + sp; });
+    const u = t - TEN[3];
+    if (u >= 0) { const fg = c.createLinearGradient(0, 860, 0, 1080); fg.addColorStop(0, '#fff0f7'); fg.addColorStop(1, '#ff4f9e'); glowText('Zainab', 540, 950, `800 250px ${BAL}`, fg, sstep(0, .2, u) * enOut, lerp(1.35, 1, eBack(u / .55)), 70); }
+  }
+  // silence: everything holds its breath
+  if (sil > 0) { c.fillStyle = `rgba(6,2,10,${.5 * sil})`; c.fillRect(0, 0, W, H); }
+  // final: the cat comes forward, both lines together, hearts rise
+  if (fin > 0) {
+    FLOAT.forEach(h => { const y = H + 60 - (((t - TFIN) * h.sp + h.p * (H + 120)) % (H + 120)); c.globalAlpha = .55 * fin; c.fillStyle = '#ff6fb3'; heartPath(c, h.x + Math.sin(t * .8 + h.w) * 20, y, h.s); c.fill(); });
+    c.globalAlpha = 1;
+    const fg = c.createLinearGradient(0, 350, 0, 520); fg.addColorStop(0, '#fff0f7'); fg.addColorStop(1, '#ff5aa5');
+    glowText('أحبك زينب', 540, 420, `700 150px ${AR}`, fg, sstep(at(29), at(29) + .5, t), 1, 50);
+    glowText('يا قرة عيني', 540, 580, `700 110px ${AR}`, '#ffe6f2', sstep(at(30), at(30) + .5, t), 1, 36);
+    glowText('I love you Zainab', 540, 720, `800 86px ${BAL}`, '#ffd0e6', sstep(at(31), at(31) + .5, t), 1, 36);
+  }
+  const look = sstep(TSIL - .1, TSIL + .05, t) * (1 - sstep(TLOVE, TLOVE + .25, t));
+  const mv = sstep(TFIN, TFIN + 1.6, t);
+  const rise = eOut((t - TAR_OUT) / 1.3);           // the cat comes up after «يا قرة عيني»
+  if (rise > 0) drawCat(t, 540, lerp(1845, 1590, mv) + 800 * (1 - rise), lerp(1.04, 1.28, mv), look, fin);
+  // flash on «أحبك»
+  if (t >= TLOVE && t < TLOVE + 1.5) { const a = .42 * Math.exp(-(t - TLOVE) * 3); const fl = c.createRadialGradient(540, 700, 10, 540, 700, 900); fl.addColorStop(0, `rgba(255,150,205,${a})`); fl.addColorStop(1, 'rgba(255,150,205,0)'); c.fillStyle = fl; c.fillRect(0, 0, W, H); }
+  const vg = c.createRadialGradient(540, 900, 500, 540, 900, 1250); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.55)');
+  c.fillStyle = vg; c.fillRect(0, 0, W, H);
+}
+
+// ---------- modes ----------
+function fit() {
+  if (CAPTURE) { cv.width = W; cv.height = H; cv.style.width = W + 'px'; cv.style.height = H + 'px'; K = 1; return; }
+  const s = Math.min(innerWidth / W, innerHeight / H), cw = Math.round(W * s), ch = Math.round(H * s), d = Math.min(2, devicePixelRatio || 1);
+  cv.style.width = cw + 'px'; cv.style.height = ch + 'px'; cv.width = Math.round(cw * d); cv.height = Math.round(ch * d); K = cv.width / W;
+}
+const fontsReady = Promise.all([
+  document.fonts.load(`700 100px ${AR}`, 'أحبك زينب يا قرة عيني'),
+  document.fonts.load(`800 100px ${BAL}`, '123 I love you Zainab'),
+  document.fonts.load(`800 100px ${BAL}`, 'زينبأحبكقرعي'),
+]).catch(() => {}).then(() => document.fonts.ready);
+
+window.__film = { render, duration: DUR, width: W, height: H, ready: false, audioWav: async () => wavB64(await music()) };
+fit();
+fontsReady.then(() => {
+  window.__film.ready = true;
+  if (CAPTURE) { if (FREEZE != null) render(FREEZE); return; }
+  let ac = null, src = null, t0 = 0, raf = 0, idle = FREEZE != null ? FREEZE : 0;
+  const frame = () => { const t = ac ? Math.max(0, ac.currentTime - t0 - (ac.outputLatency || 0)) : idle; render(t); if (t > DUR + .3) document.getElementById('again').style.display = 'block'; raf = requestAnimationFrame(frame); };
+  addEventListener('resize', () => { fit(); });
+  if (FREEZE != null) { document.getElementById('veil').remove(); document.getElementById('start').remove(); render(FREEZE); addEventListener('resize', () => render(FREEZE)); return; }
+  music();                                   // render the track while she reads the button
+  render(idle); addEventListener('resize', () => { if (!ac) render(idle); });
+  const play = async () => {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)(); await ac.resume();
+    const buf = await music(); if (src) try { src.stop(); } catch (e) {}
+    src = ac.createBufferSource(); src.buffer = buf; src.connect(ac.destination); t0 = ac.currentTime + .08; src.start(t0);
+    document.getElementById('again').style.display = 'none';
+    if (!raf) frame();
+  };
+  document.getElementById('start').addEventListener('click', () => { document.getElementById('start').remove(); document.getElementById('veil').remove(); play(); }, { once: true });
+  document.getElementById('again').addEventListener('click', play);
+});
+</script>
+</body>
+</html>
